@@ -32,3 +32,19 @@ def parse_pagination_params(default_page=1, default_size=12, max_size=50):
     page_size = min(max(1, page_size), max_size)
 
     return page, page_size
+
+
+def parse_bounded_int(name, default, min_value, max_value):
+    """
+    Read an integer query parameter and clamp it to [min_value, max_value].
+    Raises ValueError if the value is present but not an integer, so route handlers
+    can return a 400 instead of an unhandled error.
+    """
+    raw = request.args.get(name)
+    if raw is None:
+        return default
+    try:
+        value = int(raw)
+    except (ValueError, TypeError):
+        raise ValueError(f"Invalid {name} parameter: {raw}")
+    return min(max(value, min_value), max_value)
