@@ -50,7 +50,9 @@ def test_pdf_of_the_advertised_maximum_is_accepted(client, app):
     """The upload page tells users a PDF can be up to 25 MB."""
     user_id = str(ObjectId())
     headers = _auth(app, user_id)
-    payload = b"%PDF-1.4\n" + b"0" * (24 * MB)
+    import app as app_module
+
+    payload = b"%PDF-1.4\n" + b"0" * (app_module.MIME_SIZE_LIMITS["application/pdf"] - MB)
 
     with patch("app.get_user_by_id", return_value={"username": "u"}), patch(
         "app.MAGIC"
@@ -66,14 +68,17 @@ def test_pdf_of_the_advertised_maximum_is_accepted(client, app):
 
 def test_file_over_its_own_type_limit_still_gets_413(client, app):
     headers = _auth(app, str(ObjectId()))
-    payload = b"\xff\xd8\xff" + b"0" * (11 * MB)  # JPEG limit is 10 MB
+    import app as app_module
+
+    jpeg_limit = app_module.MIME_SIZE_LIMITS["image/jpeg"]
+    payload = b"\xff\xd8\xff" + b"0" * (jpeg_limit + MB)
 
     with patch("app.get_user_by_id", return_value={"username": "u"}), patch("app.MAGIC") as magic:
         magic.from_buffer.return_value = "image/jpeg"
         response = _upload(client, headers, payload, "photo.jpg")
 
     assert response.status_code == 413
-    assert "10MB" in response.get_json()["error"]
+    assert f"{jpeg_limit // MB}MB" in response.get_json()["error"]
 
 
 def test_oversized_analyze_media_request_gets_json_413(client, app):
