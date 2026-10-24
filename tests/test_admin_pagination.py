@@ -1,4 +1,5 @@
 """Admin list endpoints must bound limit/offset/page/days and answer bad values with 400."""
+
 import datetime
 
 import pytest
@@ -21,7 +22,10 @@ def many_rows(mock_db):
         [{"username": f"user{i}", "email": f"user{i}@example.com"} for i in range(130)]
     )
     mock_db.notifications.insert_many(
-        [{"seen": False, "timestamp": now - datetime.timedelta(seconds=i)} for i in range(70)]
+        [
+            {"seen": False, "timestamp": now - datetime.timedelta(seconds=i)}
+            for i in range(70)
+        ]
     )
 
 
@@ -55,7 +59,9 @@ def test_users_negative_offset_is_treated_as_zero(client, admin_headers, many_ro
     response = client.get("/api/admin/users?limit=5&offset=-10", headers=admin_headers)
 
     assert response.status_code == 200
-    assert [u["name"] for u in _rows(response, "users")] == [f"user{i}" for i in range(5)]
+    assert [u["name"] for u in _rows(response, "users")] == [
+        f"user{i}" for i in range(5)
+    ]
 
 
 @pytest.mark.parametrize("query", ["limit=abc", "offset=1.5", "limit=", "offset=x"])
@@ -74,7 +80,9 @@ def test_notifications_limit_zero_is_not_unlimited(client, admin_headers, many_r
 
 
 def test_notifications_limit_is_capped(client, admin_headers, many_rows):
-    response = client.get("/api/admin/notifications?limit=100000", headers=admin_headers)
+    response = client.get(
+        "/api/admin/notifications?limit=100000", headers=admin_headers
+    )
 
     assert len(_rows(response, "notifications")) == 50
 
@@ -103,9 +111,44 @@ def test_analytics_non_integer_days_gets_400(client, admin_headers, days):
     assert response.status_code == 400
 
 
-@pytest.mark.parametrize(("days", "expected"), [("0", 1), ("-5", 1), ("7", 7), ("100000", 365)])
+@pytest.mark.parametrize(
+    ("days", "expected"), [("0", 1), ("-5", 1), ("7", 7), ("100000", 365)]
+)
 def test_analytics_days_are_clamped(client, admin_headers, days, expected):
     response = client.get(f"/api/admin/analytics?days={days}", headers=admin_headers)
 
     assert response.status_code == 200
     assert len(response.get_json()["uploads"]["trend"]) == expected
+
+
+# --- parse_pagination_params (the dashboard's parser) is built on the same helper ----------------
+
+
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        ("", (1, 12)),
+        ("?page=3&page_size=20", (3, 20)),
+        ("?page=0&page_size=0", (1, 1)),
+        ("?page=-4&page_size=1000", (1, 50)),
+    ],
+)
+def test_parse_pagination_params_defaults_and_clamping(app, query, expected):
+    from utils.pagination import parse_pagination_params
+
+    with app.test_request_context(f"/x{query}"):
+        assert (
+            parse_pagination_params(default_page=1, default_size=12, max_size=50)
+            == expected
+        )
+
+
+@pytest.mark.parametrize(
+    ("query", "name"), [("?page=abc", "page"), ("?page_size=1.5", "page_size")]
+)
+def test_parse_pagination_params_rejects_non_integers(app, query, name):
+    from utils.pagination import parse_pagination_params
+
+    with app.test_request_context(f"/x{query}"):
+        with pytest.raises(ValueError, match=f"Invalid {name} parameter"):
+            parse_pagination_params()
